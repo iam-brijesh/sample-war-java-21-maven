@@ -24,27 +24,11 @@ jobs:
       - name: Checkout source code
         uses: actions/checkout@v4
 
-      - name: Get GitHub OIDC token claims
-        env:
-          ACTIONS_ID_TOKEN_REQUEST_TOKEN: ${{ secrets.ACTIONS_ID_TOKEN_REQUEST_TOKEN }}
-          ACTIONS_ID_TOKEN_REQUEST_URL: ${{ secrets.ACTIONS_ID_TOKEN_REQUEST_URL }}
-        run: |
-          echo "OIDC request URL:"
-          echo "$ACTIONS_ID_TOKEN_REQUEST_URL"
-
-          echo "OIDC token request token exists:"
-          if [ -n "$ACTIONS_ID_TOKEN_REQUEST_TOKEN" ]; then
-            echo "YES"
-          else
-            echo "NO"
-          fi
-
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6.2.3
         with:
           role-to-assume: arn:aws:iam::022267197315:role/GitHubActionsRole
           aws-region: ${{ env.AWS_REGION }}
-          audience: sts.amazonaws.com
 
       - name: Verify AWS identity
         run: |
