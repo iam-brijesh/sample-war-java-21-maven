@@ -1,28 +1,25 @@
-{{- if .Values.ingress.enabled }}
-
 apiVersion: networking.k8s.io/v1
 kind: Ingress
-
 metadata:
   name: sample-war
 
   annotations:
-    alb.ingress.kubernetes.io/scheme: {{ .Values.ingress.scheme }}
-    alb.ingress.kubernetes.io/target-type: {{ .Values.ingress.targetType }}
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80}]'
+    alb.ingress.kubernetes.io/healthcheck-path: /hello-world/
 
 spec:
-  ingressClassName: {{ .Values.ingress.className }}
+  ingressClassName: alb
 
   rules:
     - http:
         paths:
-          - path: {{ .Values.ingress.path }}
-            pathType: {{ .Values.ingress.pathType }}
+          - path: /
+            pathType: Prefix
 
             backend:
               service:
                 name: sample-war
                 port:
-                  number: 8080
-
-{{- end }}
+                  number: 80
