@@ -1,3 +1,11 @@
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+*.tfvars
+*.tfvars.json
+*.swp
 /target/
 /.idea/
 /.vscode/
