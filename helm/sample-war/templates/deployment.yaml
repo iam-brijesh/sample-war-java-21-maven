@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sample-war
+  labels:
+    app: sample-war
+spec:
+  replicas: {{ .Values.replicaCount }}
+
+  selector:
+    matchLabels:
+      app: sample-war
+
+  template:
+    metadata:
+      labels:
+        app: sample-war
+
+    spec:
+      containers:
+        - name: sample-war
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+
+          ports:
+            - containerPort: {{ .Values.containerPort }}
+
+          readinessProbe:
+            httpGet:
+              path: /hello-world/
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+
+          livenessProbe:
+            httpGet:
+              path: /hello-world/
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 20
