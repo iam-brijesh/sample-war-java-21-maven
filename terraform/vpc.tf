@@ -3,7 +3,6 @@ module "vpc" {
   version = "6.6.1"
 
   name = "${var.cluster_name}-vpc"
-
   cidr = var.vpc_cidr
 
   azs = [
