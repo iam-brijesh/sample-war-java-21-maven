@@ -30,7 +30,7 @@ output "private_subnet_ids" {
 
 output "node_group_name" {
   description = "EKS managed node group name"
-  value       = module.eks.eks_managed_node_groups["default"].node_group_name
+  value       = "${var.cluster_name}-nodegroup"
 }
 
 output "ecr_repository_url" {
