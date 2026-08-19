@@ -7,11 +7,11 @@ variable "aws_region" {
 variable "cluster_name" {
   description = "EKS cluster name"
   type        = string
-  default     = "terraform-hello-world-eks"
+  default     = "hello-world-eks"
 }
 
 variable "kubernetes_version" {
-  description = "Kubernetes version"
+  description = "EKS Kubernetes version"
   type        = string
   default     = "1.36"
 }
@@ -23,25 +23,31 @@ variable "vpc_cidr" {
 }
 
 variable "instance_types" {
-  description = "EKS worker node instance type"
+  description = "EKS worker node instance types"
   type        = list(string)
   default     = ["t3.medium"]
 }
 
 variable "desired_size" {
-  description = "Desired number of worker nodes"
+  description = "Desired number of EKS worker nodes"
   type        = number
   default     = 2
 }
 
 variable "min_size" {
-  description = "Minimum worker nodes"
+  description = "Minimum number of EKS worker nodes"
   type        = number
   default     = 2
 }
 
 variable "max_size" {
-  description = "Maximum worker nodes"
+  description = "Maximum number of EKS worker nodes"
   type        = number
   default     = 3
+}
+
+variable "github_actions_role_arn" {
+  description = "IAM role used by GitHub Actions"
+  type        = string
+  default     = "arn:aws:iam::022267197315:role/GitHubActionsRole"
 }
