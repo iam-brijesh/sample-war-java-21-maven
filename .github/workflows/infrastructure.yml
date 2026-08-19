@@ -71,10 +71,81 @@ jobs:
         run: |
           terraform init
 
+      # ======================================================
+      # IMPORT EXISTING AWS RESOURCES
+      # ======================================================
+
+      - name: Import existing AWS resources
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          set -e
+
+          echo "=========================================="
+          echo "Terraform State Before Import"
+          echo "=========================================="
+
+          terraform state list || true
+
+          # --------------------------------------------------
+          # ECR REPOSITORY
+          # --------------------------------------------------
+
+          if terraform state list | grep -Fxq 'aws_ecr_repository.sample_war'; then
+            echo "ECR repository already exists in Terraform state."
+          else
+            echo "Importing existing ECR repository: sample-war"
+
+            terraform import \
+              aws_ecr_repository.sample_war \
+              sample-war || true
+          fi
+
+          # --------------------------------------------------
+          # KMS ALIAS
+          # --------------------------------------------------
+
+          if terraform state list | grep -Fxq 'module.eks.module.kms.aws_kms_alias.this["cluster"]'; then
+            echo "KMS alias already exists in Terraform state."
+          else
+            echo "Importing existing KMS alias: alias/eks/hello-world-eks"
+
+            terraform import \
+              'module.eks.module.kms.aws_kms_alias.this["cluster"]' \
+              alias/eks/hello-world-eks || true
+          fi
+
+          # --------------------------------------------------
+          # CLOUDWATCH LOG GROUP
+          # --------------------------------------------------
+
+          if terraform state list | grep -Fxq 'module.eks.aws_cloudwatch_log_group.this[0]'; then
+            echo "CloudWatch log group already exists in Terraform state."
+          else
+            echo "Importing existing CloudWatch log group"
+
+            terraform import \
+              'module.eks.aws_cloudwatch_log_group.this[0]' \
+              '/aws/eks/hello-world-eks/cluster' || true
+          fi
+
+          echo "=========================================="
+          echo "Terraform State After Import"
+          echo "=========================================="
+
+          terraform state list
+
+      # ======================================================
+      # TERRAFORM FORMAT
+      # ======================================================
+
       - name: Terraform Format Check
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: |
           terraform fmt -check -recursive
+
+      # ======================================================
+      # TERRAFORM VALIDATE
+      # ======================================================
 
       - name: Terraform Validate
         working-directory: ${{ env.TF_WORKING_DIR }}
@@ -119,6 +190,7 @@ jobs:
         if: github.event_name != 'pull_request'
         run: |
           echo "===== EKS CLUSTER ====="
+
           aws eks describe-cluster \
             --name "$EKS_CLUSTER_NAME" \
             --region "$AWS_REGION" \
@@ -126,6 +198,7 @@ jobs:
             --output text
 
           echo "===== NODES ====="
+
           kubectl get nodes
 
       # ======================================================
