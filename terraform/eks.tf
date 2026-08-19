@@ -48,9 +48,7 @@ module "eks" {
 
   eks_managed_node_groups = {
     default = {
-      name = "${var.cluster_name}-nodegroup"
-
-      # IMPORTANT
+      name               = "${var.cluster_name}-nodegroup"
       kubernetes_version = var.kubernetes_version
 
       iam_role_use_name_prefix = false
