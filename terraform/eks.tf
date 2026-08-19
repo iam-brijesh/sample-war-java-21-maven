@@ -7,6 +7,7 @@ module "eks" {
 
   endpoint_public_access = true
 
+  # Existing VPC
   vpc_id     = data.aws_vpc.existing.id
   subnet_ids = data.aws_subnets.private.ids
 
