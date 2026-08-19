@@ -7,8 +7,8 @@ module "eks" {
 
   endpoint_public_access = true
 
-  vpc_id     = module.vpc.vpc_id
-  subnet_ids = module.vpc.private_subnets
+  vpc_id     = data.aws_vpc.existing.id
+  subnet_ids = data.aws_subnets.private.ids
 
   enable_cluster_creator_admin_permissions = true
 
@@ -60,7 +60,7 @@ module "eks" {
       max_size     = var.max_size
       desired_size = var.desired_size
 
-      subnet_ids = module.vpc.private_subnets
+      subnet_ids = data.aws_subnets.private.ids
 
       capacity_type = "ON_DEMAND"
 
