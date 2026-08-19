@@ -50,7 +50,6 @@ module "eks" {
     default = {
       name = "${var.cluster_name}-nodegroup"
 
-      # Fix: Prevent auto-generated IAM role name prefix from exceeding the 38-character limit
       iam_role_use_name_prefix = false
       iam_role_name            = "${var.cluster_name}-node-role"
 
