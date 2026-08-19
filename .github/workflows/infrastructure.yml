@@ -23,18 +23,27 @@ permissions:
 
 env:
   AWS_REGION: ap-south-1
+  EKS_CLUSTER_NAME: hello-world-eks
   TF_WORKING_DIR: terraform
 
 jobs:
 
   terraform:
-    name: Terraform Infrastructure
+    name: Create AWS Infrastructure
     runs-on: ubuntu-latest
 
     steps:
 
+      # ======================================================
+      # CHECKOUT
+      # ======================================================
+
       - name: Checkout
         uses: actions/checkout@v6
+
+      # ======================================================
+      # AWS OIDC
+      # ======================================================
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
@@ -42,30 +51,141 @@ jobs:
           role-to-assume: arn:aws:iam::022267197315:role/GitHubActionsRole
           aws-region: ${{ env.AWS_REGION }}
 
+      # ======================================================
+      # VERIFY AWS
+      # ======================================================
+
       - name: Verify AWS identity
         run: |
           aws sts get-caller-identity
+
+      # ======================================================
+      # TERRAFORM
+      # ======================================================
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v4
 
       - name: Terraform Init
         working-directory: ${{ env.TF_WORKING_DIR }}
-        run: terraform init
+        run: |
+          terraform init
 
       - name: Terraform Format Check
         working-directory: ${{ env.TF_WORKING_DIR }}
-        run: terraform fmt -check -recursive
+        run: |
+          terraform fmt -check -recursive
 
       - name: Terraform Validate
         working-directory: ${{ env.TF_WORKING_DIR }}
-        run: terraform validate
+        run: |
+          terraform validate
+
+      # ======================================================
+      # PLAN
+      # ======================================================
 
       - name: Terraform Plan
         working-directory: ${{ env.TF_WORKING_DIR }}
-        run: terraform plan
+        run: |
+          terraform plan
+
+      # ======================================================
+      # APPLY
+      # ======================================================
 
       - name: Terraform Apply
-        if: false
+        if: github.event_name != 'pull_request'
         working-directory: ${{ env.TF_WORKING_DIR }}
-        run: terraform apply -auto-approve
+        run: |
+          terraform apply -auto-approve
+
+      # ======================================================
+      # CONFIGURE KUBECTL
+      # ======================================================
+
+      - name: Configure kubeconfig
+        if: github.event_name != 'pull_request'
+        run: |
+          aws eks update-kubeconfig \
+            --region "$AWS_REGION" \
+            --name "$EKS_CLUSTER_NAME"
+
+      # ======================================================
+      # VERIFY EKS
+      # ======================================================
+
+      - name: Verify EKS
+        if: github.event_name != 'pull_request'
+        run: |
+          echo "===== EKS CLUSTER ====="
+          aws eks describe-cluster \
+            --name "$EKS_CLUSTER_NAME" \
+            --region "$AWS_REGION" \
+            --query 'cluster.status' \
+            --output text
+
+          echo "===== NODES ====="
+          kubectl get nodes
+
+      # ======================================================
+      # HELM
+      # ======================================================
+
+      - name: Setup Helm
+        if: github.event_name != 'pull_request'
+        uses: azure/setup-helm@v4
+        with:
+          version: latest
+
+      # ======================================================
+      # AWS EKS HELM REPOSITORY
+      # ======================================================
+
+      - name: Add EKS Helm repository
+        if: github.event_name != 'pull_request'
+        run: |
+          helm repo add eks https://aws.github.io/eks-charts
+          helm repo update
+
+      # ======================================================
+      # LOAD BALANCER CONTROLLER
+      # ======================================================
+
+      - name: Install AWS Load Balancer Controller
+        if: github.event_name != 'pull_request'
+        run: |
+          helm upgrade --install aws-load-balancer-controller \
+            eks/aws-load-balancer-controller \
+            --namespace kube-system \
+            --version 1.14.0 \
+            --set clusterName="$EKS_CLUSTER_NAME" \
+            --set serviceAccount.create=false \
+            --set serviceAccount.name=aws-load-balancer-controller \
+            --wait \
+            --timeout 10m
+
+      # ======================================================
+      # VERIFY LOAD BALANCER CONTROLLER
+      # ======================================================
+
+      - name: Verify AWS Load Balancer Controller
+        if: github.event_name != 'pull_request'
+        run: |
+          echo "===== SERVICE ACCOUNT ====="
+
+          kubectl get serviceaccount \
+            aws-load-balancer-controller \
+            -n kube-system
+
+          echo "===== DEPLOYMENT ====="
+
+          kubectl get deployment \
+            aws-load-balancer-controller \
+            -n kube-system
+
+          echo "===== PODS ====="
+
+          kubectl get pods \
+            -n kube-system \
+            -l app.kubernetes.io/name=aws-load-balancer-controller
