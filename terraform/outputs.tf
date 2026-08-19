@@ -22,10 +22,6 @@ output "cluster_endpoint" {
   value = module.eks.cluster_endpoint
 }
 
-output "node_group_name" {
-  value = module.eks.eks_managed_node_groups["default"].node_group_name
-}
-
 output "ecr_repository_url" {
   value = aws_ecr_repository.sample_war.repository_url
 }
