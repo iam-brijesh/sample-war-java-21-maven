@@ -11,9 +11,9 @@ variable "cluster_name" {
 }
 
 variable "kubernetes_version" {
-  description = "EKS Kubernetes version"
+  description = "Kubernetes version"
   type        = string
-  default     = "1.36"
+  default     = "1.33"
 }
 
 variable "vpc_cidr" {
@@ -23,31 +23,31 @@ variable "vpc_cidr" {
 }
 
 variable "instance_types" {
-  description = "EKS worker node instance types"
+  description = "EKS managed node group instance types"
   type        = list(string)
   default     = ["t3.medium"]
 }
 
-variable "desired_size" {
-  description = "Desired number of EKS worker nodes"
-  type        = number
-  default     = 2
-}
-
 variable "min_size" {
-  description = "Minimum number of EKS worker nodes"
+  description = "Minimum number of worker nodes"
   type        = number
-  default     = 2
+  default     = 1
 }
 
 variable "max_size" {
-  description = "Maximum number of EKS worker nodes"
+  description = "Maximum number of worker nodes"
   type        = number
-  default     = 3
+  default     = 2
+}
+
+variable "desired_size" {
+  description = "Desired number of worker nodes"
+  type        = number
+  default     = 1
 }
 
 variable "github_actions_role_arn" {
-  description = "IAM role used by GitHub Actions"
+  description = "IAM role ARN used by GitHub Actions"
   type        = string
   default     = "arn:aws:iam::022267197315:role/GitHubActionsRole"
 }
