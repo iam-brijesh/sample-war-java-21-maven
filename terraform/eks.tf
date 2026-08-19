@@ -2,16 +2,12 @@ module "eks" {
   source  = "terraform-aws-modules/eks/aws"
   version = "21.24.0"
 
+  # ==========================================================
+  # EKS CLUSTER
+  # ==========================================================
+
   name               = var.cluster_name
   kubernetes_version = var.kubernetes_version
-
-  # ==========================================================
-  # EXISTING EKS CLUSTER IAM ROLE
-  # ==========================================================
-
-  create_iam_role = false
-
-  iam_role_arn = "arn:aws:iam::022267197315:role/hello-world-eks-cluster-de4aa8e9493ee2624eff249f7a"
 
   # ==========================================================
   # EXISTING VPC
@@ -21,30 +17,28 @@ module "eks" {
   subnet_ids = data.aws_subnets.private.ids
 
   # ==========================================================
-  # EKS ENDPOINT
+  # EKS API ENDPOINT
   # ==========================================================
 
   endpoint_public_access  = true
   endpoint_private_access = true
 
   # ==========================================================
-  # EXISTING CLUSTER SECURITY GROUP
+  # EXISTING EKS CLUSTER IAM ROLE
   #
-  # Existing additional SG attached to cluster:
-  # sg-0db6c184778c168a9
-  #
-  # Primary EKS SG:
-  # sg-0ed880a3fd601ead3
+  # Existing AWS cluster uses:
+  # hello-world-eks-cluster-de4aa8e9493ee2624eff249f7a
   # ==========================================================
 
-  create_security_group = false
+  create_iam_role = false
 
-  vpc_security_group_ids = [
-    "sg-0db6c184778c168a9"
-  ]
+  iam_role_arn = "arn:aws:iam::022267197315:role/hello-world-eks-cluster-de4aa8e9493ee2624eff249f7a"
 
   # ==========================================================
   # EXISTING KMS KEY
+  #
+  # Existing AWS cluster uses:
+  # 8a71b8ff-31d0-4a28-9f54-7ad496f52851
   # ==========================================================
 
   create_kms_key = false
@@ -58,10 +52,14 @@ module "eks" {
   }
 
   # ==========================================================
-  # ACCESS MANAGEMENT
+  # CLUSTER CREATOR ADMIN
   # ==========================================================
 
   enable_cluster_creator_admin_permissions = true
+
+  # ==========================================================
+  # EKS ACCESS ENTRIES
+  # ==========================================================
 
   access_entries = {
     github_actions = {
@@ -111,22 +109,46 @@ module "eks" {
 
       kubernetes_version = var.kubernetes_version
 
+      # ------------------------------------------------------
+      # Existing node IAM role
+      # ------------------------------------------------------
+
       iam_role_use_name_prefix = false
       iam_role_name             = "${var.cluster_name}-node-role"
 
+      # ------------------------------------------------------
+      # Instance configuration
+      # ------------------------------------------------------
+
       instance_types = var.instance_types
+
+      capacity_type = "ON_DEMAND"
+
+      # ------------------------------------------------------
+      # Scaling
+      # ------------------------------------------------------
 
       min_size     = var.min_size
       max_size     = var.max_size
       desired_size = var.desired_size
 
+      # ------------------------------------------------------
+      # Existing private subnets
+      # ------------------------------------------------------
+
       subnet_ids = data.aws_subnets.private.ids
 
-      capacity_type = "ON_DEMAND"
+      # ------------------------------------------------------
+      # Kubernetes labels
+      # ------------------------------------------------------
 
       labels = {
         Environment = "dev"
       }
+
+      # ------------------------------------------------------
+      # Tags
+      # ------------------------------------------------------
 
       tags = {
         Environment = "dev"
@@ -136,7 +158,7 @@ module "eks" {
   }
 
   # ==========================================================
-  # TAGS
+  # CLUSTER TAGS
   # ==========================================================
 
   tags = {
