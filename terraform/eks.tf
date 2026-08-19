@@ -12,6 +12,22 @@ module "eks" {
 
   enable_cluster_creator_admin_permissions = true
 
+  access_entries = {
+    github_actions = {
+      principal_arn = var.github_actions_role_arn
+
+      policy_associations = {
+        admin = {
+          policy_arn = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+
+          access_scope = {
+            type = "cluster"
+          }
+        }
+      }
+    }
+  }
+
   addons = {
     coredns = {
       most_recent = true
