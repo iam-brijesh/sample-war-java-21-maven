@@ -72,19 +72,11 @@ jobs:
           echo "$AWS_REGION"
 
       # ======================================================
-      # SETUP TERRAFORM
+      # TERRAFORM SETUP
       # ======================================================
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v4
-
-      # ======================================================
-      # TERRAFORM VERSION
-      # ======================================================
-
-      - name: Terraform Version
-        run: |
-          terraform version
 
       # ======================================================
       # TERRAFORM INIT
@@ -95,38 +87,16 @@ jobs:
         run: |
           set -e
 
-          echo "=========================================="
-          echo "TERRAFORM INIT"
-          echo "=========================================="
-
           terraform init -input=false
 
       # ======================================================
-      # SHOW TERRAFORM BACKEND
+      # TERRAFORM VERSION
       # ======================================================
 
-      - name: Verify Terraform State
+      - name: Terraform Version
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: |
-          set -e
-
-          echo "=========================================="
-          echo "TERRAFORM STATE BEFORE IMPORT"
-          echo "=========================================="
-
-          if terraform state list > /tmp/terraform_state.txt 2>/dev/null; then
-
-            if [ -s /tmp/terraform_state.txt ]; then
-              cat /tmp/terraform_state.txt
-            else
-              echo "Terraform state exists but contains no resources."
-            fi
-
-          else
-
-            echo "No Terraform resources currently exist in state."
-
-          fi
+          terraform version
 
       # ======================================================
       # CHECK EXISTING AWS RESOURCES
@@ -137,7 +107,7 @@ jobs:
           set -e
 
           echo "=========================================="
-          echo "CHECK EXISTING AWS RESOURCES"
+          echo "EXISTING AWS RESOURCES"
           echo "=========================================="
 
           # --------------------------------------------------
@@ -151,32 +121,37 @@ jobs:
             --repository-names "$ECR_REPOSITORY" \
             --region "$AWS_REGION" >/dev/null 2>&1; then
 
-            echo "ECR repository EXISTS:"
+            echo "ECR EXISTS:"
             echo "$ECR_REPOSITORY"
 
           else
 
-            echo "ECR repository does NOT exist."
+            echo "ECR DOES NOT EXIST"
 
           fi
 
           # --------------------------------------------------
-          # KMS
+          # KMS ALIAS
           # --------------------------------------------------
 
           echo ""
           echo "===== KMS ALIAS ====="
 
-          if aws kms describe-alias \
-            --alias-name "alias/eks/$EKS_CLUSTER_NAME" \
-            --region "$AWS_REGION" >/dev/null 2>&1; then
+          KMS_ALIAS="alias/eks/$EKS_CLUSTER_NAME"
 
-            echo "KMS alias EXISTS:"
-            echo "alias/eks/$EKS_CLUSTER_NAME"
+          KMS_ALIAS_EXISTS=$(aws kms list-aliases \
+            --region "$AWS_REGION" \
+            --query "Aliases[?AliasName=='$KMS_ALIAS'].AliasName" \
+            --output text)
+
+          if [ "$KMS_ALIAS_EXISTS" = "$KMS_ALIAS" ]; then
+
+            echo "KMS ALIAS EXISTS:"
+            echo "$KMS_ALIAS"
 
           else
 
-            echo "KMS alias does NOT exist."
+            echo "KMS ALIAS DOES NOT EXIST"
 
           fi
 
@@ -187,23 +162,27 @@ jobs:
           echo ""
           echo "===== CLOUDWATCH LOG GROUP ====="
 
-          if aws logs describe-log-groups \
-            --log-group-name-prefix "/aws/eks/$EKS_CLUSTER_NAME/cluster" \
-            --region "$AWS_REGION" \
-            --query "logGroups[?logGroupName=='/aws/eks/$EKS_CLUSTER_NAME/cluster'].logGroupName" \
-            --output text \
-            | grep -q "/aws/eks/$EKS_CLUSTER_NAME/cluster"; then
+          LOG_GROUP="/aws/eks/$EKS_CLUSTER_NAME/cluster"
 
-            echo "CloudWatch log group EXISTS."
+          LOG_GROUP_EXISTS=$(aws logs describe-log-groups \
+            --region "$AWS_REGION" \
+            --log-group-name-prefix "$LOG_GROUP" \
+            --query "logGroups[?logGroupName=='$LOG_GROUP'].logGroupName" \
+            --output text)
+
+          if [ "$LOG_GROUP_EXISTS" = "$LOG_GROUP" ]; then
+
+            echo "CLOUDWATCH LOG GROUP EXISTS:"
+            echo "$LOG_GROUP"
 
           else
 
-            echo "CloudWatch log group does NOT exist."
+            echo "CLOUDWATCH LOG GROUP DOES NOT EXIST"
 
           fi
 
           # --------------------------------------------------
-          # VPC COUNT
+          # VPC
           # --------------------------------------------------
 
           echo ""
@@ -214,10 +193,23 @@ jobs:
             --query 'length(Vpcs)' \
             --output text)
 
-          echo "Current VPC count: $VPC_COUNT"
+          echo "CURRENT VPC COUNT: $VPC_COUNT"
 
       # ======================================================
-      # IMPORT EXISTING AWS RESOURCES
+      # TERRAFORM STATE BEFORE IMPORT
+      # ======================================================
+
+      - name: Terraform State Before Import
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          echo "=========================================="
+          echo "TERRAFORM STATE BEFORE IMPORT"
+          echo "=========================================="
+
+          terraform state list || true
+
+      # ======================================================
+      # IMPORT EXISTING RESOURCES
       # ======================================================
 
       - name: Import existing AWS resources
@@ -229,38 +221,35 @@ jobs:
           echo "IMPORT EXISTING AWS RESOURCES"
           echo "=========================================="
 
-          # ==================================================
-          # FUNCTION: CHECK TERRAFORM STATE
-          # ==================================================
-
           resource_in_state() {
-            terraform state list 2>/dev/null \
-              | grep -Fxq "$1"
+            terraform state list 2>/dev/null | grep -Fxq "$1"
           }
 
           # ==================================================
-          # ECR REPOSITORY
+          # ECR
           # ==================================================
-
-          ECR_ADDRESS='aws_ecr_repository.sample_war'
 
           echo ""
           echo "=========================================="
           echo "ECR IMPORT"
           echo "=========================================="
 
+          ECR_ADDRESS="aws_ecr_repository.sample_war"
+
           if resource_in_state "$ECR_ADDRESS"; then
 
-            echo "ECR already exists in Terraform state."
+            echo "SUCCESS: ECR is already in Terraform state."
 
           else
+
+            echo "Checking AWS for ECR repository..."
 
             if aws ecr describe-repositories \
               --repository-names "$ECR_REPOSITORY" \
               --region "$AWS_REGION" >/dev/null 2>&1; then
 
-              echo "ECR exists in AWS."
-              echo "Importing ECR repository: $ECR_REPOSITORY"
+              echo "ECR repository exists in AWS."
+              echo "Importing ECR repository..."
 
               terraform import \
                 -input=false \
@@ -269,55 +258,67 @@ jobs:
 
             else
 
-              echo "ECR does not exist."
-              echo "Terraform will create the repository."
+              echo "ECR repository does not exist."
+              echo "Terraform will create it."
 
             fi
 
           fi
 
-          # ==================================================
-          # VERIFY ECR IMPORT
-          # ==================================================
+          # Verify ECR state
 
           if resource_in_state "$ECR_ADDRESS"; then
             echo "SUCCESS: ECR is in Terraform state."
           else
-            echo "ECR is not in Terraform state."
+            echo "INFO: ECR is not currently in Terraform state."
           fi
 
           # ==================================================
           # KMS ALIAS
           # ==================================================
 
-          KMS_ADDRESS='module.eks.module.kms.aws_kms_alias.this["cluster"]'
-
           echo ""
           echo "=========================================="
           echo "KMS ALIAS IMPORT"
           echo "=========================================="
 
+          KMS_ADDRESS='module.eks.module.kms.aws_kms_alias.this["cluster"]'
+          KMS_ALIAS="alias/eks/$EKS_CLUSTER_NAME"
+
           if resource_in_state "$KMS_ADDRESS"; then
 
-            echo "KMS alias already exists in Terraform state."
+            echo "SUCCESS: KMS alias is already in Terraform state."
 
           else
 
-            if aws kms describe-alias \
-              --alias-name "alias/eks/$EKS_CLUSTER_NAME" \
-              --region "$AWS_REGION" >/dev/null 2>&1; then
+            echo "Checking AWS KMS aliases..."
 
-              echo "KMS alias exists in AWS."
-              echo "Importing KMS alias:"
-              echo "alias/eks/$EKS_CLUSTER_NAME"
+            echo "Looking for:"
+            echo "$KMS_ALIAS"
+
+            KMS_ALIAS_EXISTS=$(aws kms list-aliases \
+              --region "$AWS_REGION" \
+              --query "Aliases[?AliasName=='$KMS_ALIAS'].AliasName" \
+              --output text)
+
+            echo "AWS KMS result:"
+            echo "$KMS_ALIAS_EXISTS"
+
+            if [ "$KMS_ALIAS_EXISTS" = "$KMS_ALIAS" ]; then
+
+              echo ""
+              echo "KMS ALIAS EXISTS IN AWS."
+              echo "IMPORTING:"
+              echo "$KMS_ALIAS"
 
               terraform import \
                 -input=false \
                 "$KMS_ADDRESS" \
-                "alias/eks/$EKS_CLUSTER_NAME"
+                "$KMS_ALIAS"
 
             else
 
+              echo ""
               echo "KMS alias does not exist."
               echo "Terraform will create the alias."
 
@@ -325,26 +326,50 @@ jobs:
 
           fi
 
-          # ==================================================
-          # VERIFY KMS IMPORT
-          # ==================================================
+          # --------------------------------------------------
+          # CRITICAL KMS VERIFICATION
+          # --------------------------------------------------
 
           echo ""
-          echo "Checking KMS state..."
+          echo "=========================================="
+          echo "VERIFY KMS TERRAFORM STATE"
+          echo "=========================================="
 
           if resource_in_state "$KMS_ADDRESS"; then
 
             echo "SUCCESS: KMS alias is in Terraform state."
 
+            terraform state show "$KMS_ADDRESS"
+
           else
 
-            echo "ERROR: KMS alias is NOT in Terraform state."
+            # Check AWS one more time
+            KMS_ALIAS_EXISTS=$(aws kms list-aliases \
+              --region "$AWS_REGION" \
+              --query "Aliases[?AliasName=='$KMS_ALIAS'].AliasName" \
+              --output text)
 
-            echo ""
-            echo "Terraform state:"
-            terraform state list || true
+            if [ "$KMS_ALIAS_EXISTS" = "$KMS_ALIAS" ]; then
 
-            exit 1
+              echo ""
+              echo "ERROR: KMS alias EXISTS IN AWS"
+              echo "BUT IS NOT IN TERRAFORM STATE."
+              echo ""
+              echo "AWS alias:"
+              echo "$KMS_ALIAS"
+              echo ""
+              echo "Terraform address:"
+              echo "$KMS_ADDRESS"
+              echo ""
+
+              exit 1
+
+            else
+
+              echo "SUCCESS: KMS alias does not exist in AWS."
+              echo "Terraform can create it."
+
+            fi
 
           fi
 
@@ -352,33 +377,35 @@ jobs:
           # CLOUDWATCH LOG GROUP
           # ==================================================
 
-          LOG_GROUP_ADDRESS='module.eks.aws_cloudwatch_log_group.this[0]'
-
           echo ""
           echo "=========================================="
           echo "CLOUDWATCH LOG GROUP IMPORT"
           echo "=========================================="
 
+          LOG_GROUP_ADDRESS='module.eks.aws_cloudwatch_log_group.this[0]'
+          LOG_GROUP="/aws/eks/$EKS_CLUSTER_NAME/cluster"
+
           if resource_in_state "$LOG_GROUP_ADDRESS"; then
 
-            echo "CloudWatch log group already exists in Terraform state."
+            echo "SUCCESS: CloudWatch log group is already in Terraform state."
 
           else
 
-            if aws logs describe-log-groups \
-              --log-group-name-prefix "/aws/eks/$EKS_CLUSTER_NAME/cluster" \
+            LOG_GROUP_EXISTS=$(aws logs describe-log-groups \
               --region "$AWS_REGION" \
-              --query "logGroups[?logGroupName=='/aws/eks/$EKS_CLUSTER_NAME/cluster'].logGroupName" \
-              --output text \
-              | grep -q "/aws/eks/$EKS_CLUSTER_NAME/cluster"; then
+              --log-group-name-prefix "$LOG_GROUP" \
+              --query "logGroups[?logGroupName=='$LOG_GROUP'].logGroupName" \
+              --output text)
 
-              echo "CloudWatch log group exists in AWS."
-              echo "Importing CloudWatch log group."
+            if [ "$LOG_GROUP_EXISTS" = "$LOG_GROUP" ]; then
+
+              echo "CloudWatch log group exists."
+              echo "Importing..."
 
               terraform import \
                 -input=false \
                 "$LOG_GROUP_ADDRESS" \
-                "/aws/eks/$EKS_CLUSTER_NAME/cluster"
+                "$LOG_GROUP"
 
             else
 
@@ -389,9 +416,9 @@ jobs:
 
           fi
 
-          # ==================================================
-          # VERIFY CLOUDWATCH IMPORT
-          # ==================================================
+          # --------------------------------------------------
+          # VERIFY CLOUDWATCH STATE
+          # --------------------------------------------------
 
           if resource_in_state "$LOG_GROUP_ADDRESS"; then
 
@@ -399,71 +426,38 @@ jobs:
 
           else
 
-            echo "CloudWatch log group is not in Terraform state."
+            LOG_GROUP_EXISTS=$(aws logs describe-log-groups \
+              --region "$AWS_REGION" \
+              --log-group-name-prefix "$LOG_GROUP" \
+              --query "logGroups[?logGroupName=='$LOG_GROUP'].logGroupName" \
+              --output text)
+
+            if [ "$LOG_GROUP_EXISTS" = "$LOG_GROUP" ]; then
+
+              echo "ERROR: CloudWatch log group exists in AWS but not Terraform state."
+
+              exit 1
+
+            else
+
+              echo "CloudWatch log group does not exist in AWS."
+
+            fi
 
           fi
 
-          # ==================================================
-          # FINAL STATE
-          # ==================================================
+      # ======================================================
+      # FINAL STATE AFTER IMPORT
+      # ======================================================
 
-          echo ""
+      - name: Terraform State After Import
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
           echo "=========================================="
           echo "TERRAFORM STATE AFTER IMPORT"
           echo "=========================================="
 
-          terraform state list
-
-      # ======================================================
-      # EXPLICIT KMS STATE CHECK
-      # ======================================================
-
-      - name: Verify KMS Terraform State
-        working-directory: ${{ env.TF_WORKING_DIR }}
-        run: |
-          set -e
-
-          KMS_ADDRESS='module.eks.module.kms.aws_kms_alias.this["cluster"]'
-
-          echo "=========================================="
-          echo "VERIFY KMS TERRAFORM STATE"
-          echo "=========================================="
-
-          echo "Expected Terraform address:"
-          echo "$KMS_ADDRESS"
-
-          echo ""
-          echo "Searching Terraform state..."
-
-          if terraform state list | grep -Fxq "$KMS_ADDRESS"; then
-
-            echo ""
-            echo "=========================================="
-            echo "SUCCESS"
-            echo "=========================================="
-
-            echo "KMS alias is managed by Terraform."
-
-            echo ""
-            echo "Terraform KMS state:"
-            terraform state show "$KMS_ADDRESS"
-
-          else
-
-            echo ""
-            echo "=========================================="
-            echo "ERROR"
-            echo "=========================================="
-
-            echo "KMS alias is NOT in Terraform state."
-
-            echo ""
-            echo "Current Terraform state:"
-            terraform state list || true
-
-            exit 1
-
-          fi
+          terraform state list || true
 
       # ======================================================
       # TERRAFORM FORMAT
@@ -496,10 +490,6 @@ jobs:
         run: |
           set -e
 
-          echo "=========================================="
-          echo "TERRAFORM PLAN"
-          echo "=========================================="
-
           terraform plan \
             -input=false \
             -out=tfplan
@@ -514,10 +504,6 @@ jobs:
         run: |
           set -e
 
-          echo "=========================================="
-          echo "TERRAFORM APPLY"
-          echo "=========================================="
-
           terraform apply \
             -input=false \
             -auto-approve \
@@ -531,10 +517,6 @@ jobs:
         if: github.event_name != 'pull_request'
         run: |
           set -e
-
-          echo "=========================================="
-          echo "CONFIGURE KUBECTL"
-          echo "=========================================="
 
           aws eks update-kubeconfig \
             --region "$AWS_REGION" \
@@ -577,7 +559,7 @@ jobs:
           version: latest
 
       # ======================================================
-      # ADD AWS EKS HELM REPOSITORY
+      # ADD EKS HELM REPOSITORY
       # ======================================================
 
       - name: Add EKS Helm repository
@@ -596,10 +578,6 @@ jobs:
         if: github.event_name != 'pull_request'
         run: |
           set -e
-
-          echo "=========================================="
-          echo "INSTALL AWS LOAD BALANCER CONTROLLER"
-          echo "=========================================="
 
           helm upgrade --install aws-load-balancer-controller \
             eks/aws-load-balancer-controller \
