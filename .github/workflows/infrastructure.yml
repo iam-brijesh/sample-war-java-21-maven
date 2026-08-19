@@ -1,9 +1,12 @@
-name: Create AWS Infrastructure
+name: Infrastructure - Terraform EKS
 
 on:
   push:
     branches:
       - main
+    paths:
+      - "terraform/**"
+      - ".github/workflows/infrastructure.yml"
 
   workflow_dispatch:
 
@@ -16,92 +19,115 @@ env:
   TF_WORKING_DIR: terraform
 
 jobs:
-
-  # ============================================================
-  # TERRAFORM INFRASTRUCTURE
-  # ============================================================
-
   terraform:
-    name: Terraform Infrastructure
+    name: Terraform EKS Infrastructure
     runs-on: ubuntu-latest
 
     steps:
 
-      # ----------------------------------------------------------
-      # 1. Checkout source code
-      # ----------------------------------------------------------
-
+      # ==========================================================
+      # 1. Checkout
+      # ==========================================================
       - name: Checkout repository
         uses: actions/checkout@v4
 
-
-      # ----------------------------------------------------------
+      # ==========================================================
       # 2. Configure AWS using GitHub OIDC
-      # ----------------------------------------------------------
-
+      # ==========================================================
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::022267197315:role/GitHubActionsRole
           aws-region: ${{ env.AWS_REGION }}
 
-
-      # ----------------------------------------------------------
-      # 3. Verify AWS authentication
-      # ----------------------------------------------------------
-
+      # ==========================================================
+      # 3. Verify AWS identity
+      # ==========================================================
       - name: Verify AWS identity
         run: |
           aws sts get-caller-identity
-          aws eks describe-cluster \
-            --name hello-world-eks \
-            --region $AWS_REGION \
-            --query 'cluster.{Name:name,Version:version,Status:status}' \
+
+      # ==========================================================
+      # 4. Verify existing VPC
+      # ==========================================================
+      - name: Verify existing VPC
+        run: |
+          echo "Checking existing VPC..."
+
+          aws ec2 describe-vpcs \
+            --region "$AWS_REGION" \
+            --vpc-ids vpc-0a2677f7e7eddad6c \
+            --query 'Vpcs[0].{VpcId:VpcId,Cidr:CidrBlock,Name:Tags[?Key==`Name`]|[0].Value}' \
             --output table
 
+      # ==========================================================
+      # 5. Verify existing EKS cluster
+      # ==========================================================
+      - name: Verify existing EKS cluster
+        run: |
+          echo "Checking EKS cluster..."
 
-      # ----------------------------------------------------------
-      # 4. Setup Terraform
-      # ----------------------------------------------------------
+          aws eks describe-cluster \
+            --region "$AWS_REGION" \
+            --name hello-world-eks \
+            --query 'cluster.{Name:name,Version:version,Status:status,VPC:vpcConfig.vpcId}' \
+            --output table
 
+      # ==========================================================
+      # 6. Verify existing ECR repository
+      # ==========================================================
+      - name: Verify ECR repository
+        run: |
+          echo "Checking ECR repository..."
+
+          aws ecr describe-repositories \
+            --region "$AWS_REGION" \
+            --repository-names sample-war \
+            --query 'repositories[0].{Name:repositoryName,URI:repositoryUri}' \
+            --output table
+
+      # ==========================================================
+      # 7. Setup Terraform
+      # ==========================================================
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
 
-
-      # ----------------------------------------------------------
-      # 5. Terraform Init
-      # ----------------------------------------------------------
-
+      # ==========================================================
+      # 8. Terraform Init
+      # ==========================================================
       - name: Terraform Init
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: |
-          terraform init -input=false
+          terraform init -reconfigure
 
-
-      # ----------------------------------------------------------
-      # 6. Terraform Format
-      # ----------------------------------------------------------
-
+      # ==========================================================
+      # 9. Terraform Format Check
+      # ==========================================================
       - name: Terraform Format Check
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: |
           terraform fmt -check -recursive
 
-
-      # ----------------------------------------------------------
-      # 7. Terraform Validate
-      # ----------------------------------------------------------
-
+      # ==========================================================
+      # 10. Terraform Validate
+      # ==========================================================
       - name: Terraform Validate
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: |
           terraform validate
 
+      # ==========================================================
+      # 11. Show Terraform State
+      # ==========================================================
+      - name: Terraform State
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          echo "Terraform resources currently managed:"
+          terraform state list
 
-      # ----------------------------------------------------------
-      # 8. Terraform Plan
-      # ----------------------------------------------------------
-
+      # ==========================================================
+      # 12. Terraform Plan
+      # ==========================================================
       - name: Terraform Plan
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: |
@@ -109,11 +135,9 @@ jobs:
             -input=false \
             -out=tfplan
 
-
-      # ----------------------------------------------------------
-      # 9. Terraform Apply
-      # ----------------------------------------------------------
-
+      # ==========================================================
+      # 13. Terraform Apply
+      # ==========================================================
       - name: Terraform Apply
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         working-directory: ${{ env.TF_WORKING_DIR }}
@@ -123,11 +147,35 @@ jobs:
             -auto-approve \
             tfplan
 
+      # ==========================================================
+      # 14. Verify EKS
+      # ==========================================================
+      - name: Verify EKS
+        if: success()
+        run: |
+          echo "EKS cluster status:"
 
-      # ----------------------------------------------------------
-      # 10. Terraform Outputs
-      # ----------------------------------------------------------
+          aws eks describe-cluster \
+            --region "$AWS_REGION" \
+            --name hello-world-eks \
+            --query 'cluster.{Name:name,Version:version,Status:status,VPC:vpcConfig.vpcId}' \
+            --output table
 
+      # ==========================================================
+      # 15. Verify Node Groups
+      # ==========================================================
+      - name: Verify EKS Node Groups
+        if: success()
+        run: |
+          echo "EKS node groups:"
+
+          aws eks list-nodegroups \
+            --region "$AWS_REGION" \
+            --cluster-name hello-world-eks
+
+      # ==========================================================
+      # 16. Terraform Outputs
+      # ==========================================================
       - name: Terraform Outputs
         if: success()
         working-directory: ${{ env.TF_WORKING_DIR }}
