@@ -1,39 +1,31 @@
-output "cluster_name" {
-  description = "EKS cluster name"
-  value       = module.eks.cluster_name
-}
-
-output "cluster_endpoint" {
-  description = "EKS cluster API endpoint"
-  value       = module.eks.cluster_endpoint
-}
-
-output "cluster_arn" {
-  description = "EKS cluster ARN"
-  value       = module.eks.cluster_arn
-}
-
 output "vpc_id" {
-  description = "VPC ID"
-  value       = module.vpc.vpc_id
-}
-
-output "private_subnet_ids" {
-  description = "Private subnet IDs"
-  value       = module.vpc.private_subnets
+  value = module.vpc.vpc_id
 }
 
 output "public_subnet_ids" {
-  description = "Public subnet IDs"
-  value       = module.vpc.public_subnets
+  value = module.vpc.public_subnets
+}
+
+output "private_subnet_ids" {
+  value = module.vpc.private_subnets
+}
+
+output "cluster_name" {
+  value = module.eks.cluster_name
+}
+
+output "cluster_arn" {
+  value = module.eks.cluster_arn
+}
+
+output "cluster_endpoint" {
+  value = module.eks.cluster_endpoint
+}
+
+output "node_group_name" {
+  value = module.eks.eks_managed_node_groups["default"].node_group_name
 }
 
 output "ecr_repository_url" {
-  description = "ECR repository URL"
-  value       = aws_ecr_repository.sample_war.repository_url
-}
-
-output "aws_load_balancer_controller_role_arn" {
-  description = "IAM role ARN for AWS Load Balancer Controller"
-  value       = module.aws_load_balancer_controller.iam_role_arn
+  value = aws_ecr_repository.sample_war.repository_url
 }
