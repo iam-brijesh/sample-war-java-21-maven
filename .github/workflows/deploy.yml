@@ -1,4 +1,4 @@
-name: Application CI/CD - Build and Deploy to EKS
+name: Application CI/CD
 
 on:
   push:
@@ -26,27 +26,28 @@ env:
 jobs:
 
   # ==========================================================
-  # JOB 1: BUILD + DOCKER + ECR
+  # JOB 1
+  # BUILD WAR + DOCKER + PUSH ECR
   # ==========================================================
 
   build-and-push:
 
-    name: Build WAR, Docker Image and Push to ECR
+    name: Build WAR and Push Docker Image
 
     runs-on: ubuntu-latest
 
     steps:
 
-      # ------------------------------------------------------
-      # Checkout
-      # ------------------------------------------------------
+      # ======================================================
+      # CHECKOUT
+      # ======================================================
 
       - name: Checkout source
         uses: actions/checkout@v4
 
-      # ------------------------------------------------------
-      # Java 21
-      # ------------------------------------------------------
+      # ======================================================
+      # JAVA 21
+      # ======================================================
 
       - name: Setup Java 21
         uses: actions/setup-java@v4
@@ -55,48 +56,49 @@ jobs:
           java-version: "21"
           cache: maven
 
-      # ------------------------------------------------------
-      # Maven Build
-      # ------------------------------------------------------
+      # ======================================================
+      # MAVEN
+      # ======================================================
 
       - name: Build WAR
         run: |
           mvn clean package -DskipTests
 
-      # ------------------------------------------------------
-      # Verify WAR
-      # ------------------------------------------------------
+      # ======================================================
+      # VERIFY WAR
+      # ======================================================
 
       - name: Verify WAR
         run: |
-          echo "===== TARGET DIRECTORY ====="
+          echo "===== TARGET ====="
+
           ls -lh target/
 
           test -f target/hello-world.war
 
-          echo "WAR file found successfully"
+          echo "WAR successfully created"
 
-      # ------------------------------------------------------
+      # ======================================================
       # AWS OIDC
-      # ------------------------------------------------------
+      # ======================================================
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
-          role-to-assume: ${{ secrets.AWS_APP_ROLE_ARN }}
+          role-to-assume: arn:aws:iam::022267197315:role/GitHubActionsRole
           aws-region: ${{ env.AWS_REGION }}
 
-      # ------------------------------------------------------
-      # Verify AWS
-      # ------------------------------------------------------
+      # ======================================================
+      # VERIFY AWS
+      # ======================================================
 
       - name: Verify AWS identity
         run: |
           aws sts get-caller-identity
 
-      # ------------------------------------------------------
-      # Get AWS Account ID
-      # ------------------------------------------------------
+      # ======================================================
+      # AWS ACCOUNT
+      # ======================================================
 
       - name: Get AWS Account ID
         id: aws-account
@@ -107,16 +109,16 @@ jobs:
 
           echo "account_id=$ACCOUNT_ID" >> "$GITHUB_OUTPUT"
 
-      # ------------------------------------------------------
-      # Login to ECR
-      # ------------------------------------------------------
+      # ======================================================
+      # ECR LOGIN
+      # ======================================================
 
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
 
-      # ------------------------------------------------------
-      # Docker Build
-      # ------------------------------------------------------
+      # ======================================================
+      # DOCKER BUILD
+      # ======================================================
 
       - name: Build Docker image
         env:
@@ -125,43 +127,44 @@ jobs:
 
         run: |
           docker build \
-            -t $REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
-            -t $REGISTRY/$ECR_REPOSITORY:latest \
+            -t "$REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" \
+            -t "$REGISTRY/$ECR_REPOSITORY:latest" \
             .
 
-      # ------------------------------------------------------
-      # Push SHA image
-      # ------------------------------------------------------
+      # ======================================================
+      # PUSH SHA
+      # ======================================================
 
-      - name: Push SHA image to ECR
+      - name: Push SHA image
         env:
           REGISTRY: ${{ steps.aws-account.outputs.account_id }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
           IMAGE_TAG: ${{ github.sha }}
 
         run: |
           docker push \
-            $REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+            "$REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
 
-      # ------------------------------------------------------
-      # Push latest image
-      # ------------------------------------------------------
+      # ======================================================
+      # PUSH LATEST
+      # ======================================================
 
-      - name: Push latest image to ECR
+      - name: Push latest image
         env:
           REGISTRY: ${{ steps.aws-account.outputs.account_id }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
 
         run: |
           docker push \
-            $REGISTRY/$ECR_REPOSITORY:latest
+            "$REGISTRY/$ECR_REPOSITORY:latest"
 
 
   # ==========================================================
-  # JOB 2: DEPLOY TO EKS
+  # JOB 2
+  # DEPLOY TO EKS
   # ==========================================================
 
   deploy:
 
-    name: Deploy Application to EKS using Helm
+    name: Deploy Application to EKS
 
     runs-on: ubuntu-latest
 
@@ -170,34 +173,34 @@ jobs:
 
     steps:
 
-      # ------------------------------------------------------
-      # Checkout
-      # ------------------------------------------------------
+      # ======================================================
+      # CHECKOUT
+      # ======================================================
 
       - name: Checkout source
         uses: actions/checkout@v4
 
-      # ------------------------------------------------------
+      # ======================================================
       # AWS OIDC
-      # ------------------------------------------------------
+      # ======================================================
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
-          role-to-assume: ${{ secrets.AWS_APP_ROLE_ARN }}
+          role-to-assume: arn:aws:iam::022267197315:role/GitHubActionsRole
           aws-region: ${{ env.AWS_REGION }}
 
-      # ------------------------------------------------------
-      # Verify AWS
-      # ------------------------------------------------------
+      # ======================================================
+      # VERIFY AWS
+      # ======================================================
 
       - name: Verify AWS identity
         run: |
           aws sts get-caller-identity
 
-      # ------------------------------------------------------
-      # Configure kubectl
-      # ------------------------------------------------------
+      # ======================================================
+      # CONFIGURE KUBECTL
+      # ======================================================
 
       - name: Configure kubeconfig
         run: |
@@ -205,38 +208,44 @@ jobs:
             --region "$AWS_REGION" \
             --name "$EKS_CLUSTER_NAME"
 
-      # ------------------------------------------------------
-      # Verify EKS
-      # ------------------------------------------------------
+      # ======================================================
+      # VERIFY EKS
+      # ======================================================
 
-      - name: Verify EKS access
+      - name: Verify EKS
         run: |
-          echo "===== EKS NODES ====="
+          echo "===== CLUSTER ====="
+
+          aws eks describe-cluster \
+            --name "$EKS_CLUSTER_NAME" \
+            --region "$AWS_REGION" \
+            --query 'cluster.status' \
+            --output text
+
+          echo "===== NODES ====="
+
           kubectl get nodes
 
-          echo "===== NAMESPACES ====="
-          kubectl get namespaces
-
-      # ------------------------------------------------------
-      # Install Helm
-      # ------------------------------------------------------
+      # ======================================================
+      # HELM
+      # ======================================================
 
       - name: Setup Helm
         uses: azure/setup-helm@v4
         with:
           version: latest
 
-      # ------------------------------------------------------
-      # Helm Lint
-      # ------------------------------------------------------
+      # ======================================================
+      # HELM LINT
+      # ======================================================
 
       - name: Helm lint
         run: |
           helm lint helm/sample-war
 
-      # ------------------------------------------------------
-      # Get AWS Account ID
-      # ------------------------------------------------------
+      # ======================================================
+      # AWS ACCOUNT
+      # ======================================================
 
       - name: Get AWS Account ID
         id: aws-account
@@ -247,9 +256,9 @@ jobs:
 
           echo "account_id=$ACCOUNT_ID" >> "$GITHUB_OUTPUT"
 
-      # ------------------------------------------------------
-      # Deploy with Helm
-      # ------------------------------------------------------
+      # ======================================================
+      # DEPLOY
+      # ======================================================
 
       - name: Deploy application with Helm
         env:
@@ -266,20 +275,86 @@ jobs:
             --wait \
             --timeout 10m
 
-      # ------------------------------------------------------
-      # Verify Deployment
-      # ------------------------------------------------------
+      # ======================================================
+      # VERIFY PODS
+      # ======================================================
 
-      - name: Verify Kubernetes deployment
+      - name: Verify pods
         run: |
+          kubectl get pods \
+            -n "$NAMESPACE" \
+            -o wide
+
+      # ======================================================
+      # VERIFY SERVICE
+      # ======================================================
+
+      - name: Verify service
+        run: |
+          kubectl get svc \
+            -n "$NAMESPACE"
+
+      # ======================================================
+      # VERIFY INGRESS
+      # ======================================================
+
+      - name: Verify ingress
+        run: |
+          kubectl get ingress \
+            -n "$NAMESPACE"
+
+      # ======================================================
+      # WAIT FOR ALB
+      # ======================================================
+
+      - name: Wait for ALB
+        run: |
+          echo "Waiting for AWS ALB..."
+
+          for i in {1..30}; do
+
+            ALB=$(kubectl get ingress sample-war \
+              -n "$NAMESPACE" \
+              -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' \
+              2>/dev/null || true)
+
+            if [ -n "$ALB" ]; then
+              echo "======================================"
+              echo "ALB CREATED"
+              echo "======================================"
+              echo "http://$ALB"
+              echo "======================================"
+              exit 0
+            fi
+
+            echo "ALB not ready yet..."
+            sleep 20
+
+          done
+
+          echo "ALB was not created within expected time"
+          kubectl describe ingress sample-war -n "$NAMESPACE"
+          exit 1
+
+      # ======================================================
+      # FINAL STATUS
+      # ======================================================
+
+      - name: Final deployment status
+        run: |
+          echo "======================================"
+          echo "DEPLOYMENT"
+          echo "======================================"
+
+          kubectl get deployment \
+            -n "$NAMESPACE"
 
           echo "======================================"
           echo "PODS"
           echo "======================================"
 
           kubectl get pods \
-            -n "$NAMESPACE" \
-            -o wide
+            -n "$NAMESPACE"
 
           echo "======================================"
           echo "SERVICE"
@@ -293,13 +368,6 @@ jobs:
           echo "======================================"
 
           kubectl get ingress \
-            -n "$NAMESPACE"
-
-          echo "======================================"
-          echo "DEPLOYMENT"
-          echo "======================================"
-
-          kubectl get deployment \
             -n "$NAMESPACE"
 
           echo "======================================"
