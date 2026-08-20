@@ -7,7 +7,7 @@ on:
       - main
     paths:
       - "terraform/**"
-      - ".github/workflows/infrastructure.yaml"
+      - ".github/workflows/infrastructure.yml"
 
 permissions:
   id-token: write
@@ -40,7 +40,7 @@ jobs:
       # Configure AWS using GitHub OIDC
       # ------------------------------------------------------
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: arn:aws:iam::022267197315:role/GitHubActionsRole
           aws-region: ${{ env.AWS_REGION }}
@@ -173,7 +173,7 @@ jobs:
       # Configure AWS
       # ------------------------------------------------------
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: arn:aws:iam::022267197315:role/GitHubActionsRole
           aws-region: ${{ env.AWS_REGION }}
