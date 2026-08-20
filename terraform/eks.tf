@@ -24,27 +24,21 @@ module "eks" {
   endpoint_private_access = true
 
   # ==========================================================
-  # EXISTING EKS CLUSTER IAM ROLE
-  #
-  # Existing AWS cluster uses:
-  # hello-world-eks-cluster-de4aa8e9493ee2624eff249f7a
+  # EXISTING CLUSTER IAM ROLE
   # ==========================================================
 
   create_iam_role = false
 
-  iam_role_arn = "arn:aws:iam::022267197315:role/hello-world-eks-cluster-de4aa8e9493ee2624eff249f7a"
+  iam_role_arn = var.cluster_iam_role_arn
 
   # ==========================================================
   # EXISTING KMS KEY
-  #
-  # Existing AWS cluster uses:
-  # 8a71b8ff-31d0-4a28-9f54-7ad496f52851
   # ==========================================================
 
   create_kms_key = false
 
   encryption_config = {
-    provider_key_arn = "arn:aws:kms:ap-south-1:022267197315:key/8a71b8ff-31d0-4a28-9f54-7ad496f52851"
+    provider_key_arn = var.kms_key_arn
 
     resources = [
       "secrets"
@@ -58,7 +52,7 @@ module "eks" {
   enable_cluster_creator_admin_permissions = true
 
   # ==========================================================
-  # EKS ACCESS ENTRIES
+  # GITHUB ACTIONS ACCESS
   # ==========================================================
 
   access_entries = {
@@ -82,15 +76,15 @@ module "eks" {
   # ==========================================================
 
   addons = {
+    vpc-cni = {
+      most_recent = true
+    }
+
     coredns = {
       most_recent = true
     }
 
     kube-proxy = {
-      most_recent = true
-    }
-
-    vpc-cni = {
       most_recent = true
     }
 
@@ -105,19 +99,21 @@ module "eks" {
 
   eks_managed_node_groups = {
     default = {
+
       name = "${var.cluster_name}-nodegroup"
 
       kubernetes_version = var.kubernetes_version
 
       # ------------------------------------------------------
-      # Existing node IAM role
+      # NODE IAM ROLE
       # ------------------------------------------------------
 
+      create_iam_role          = true
       iam_role_use_name_prefix = false
       iam_role_name            = "${var.cluster_name}-node-role"
 
       # ------------------------------------------------------
-      # Instance configuration
+      # NODE INSTANCE
       # ------------------------------------------------------
 
       instance_types = var.instance_types
@@ -125,7 +121,7 @@ module "eks" {
       capacity_type = "ON_DEMAND"
 
       # ------------------------------------------------------
-      # Scaling
+      # NODE SCALING
       # ------------------------------------------------------
 
       min_size     = var.min_size
@@ -133,13 +129,13 @@ module "eks" {
       desired_size = var.desired_size
 
       # ------------------------------------------------------
-      # Existing private subnets
+      # PRIVATE SUBNETS
       # ------------------------------------------------------
 
       subnet_ids = data.aws_subnets.private.ids
 
       # ------------------------------------------------------
-      # Kubernetes labels
+      # NODE LABELS
       # ------------------------------------------------------
 
       labels = {
@@ -147,7 +143,7 @@ module "eks" {
       }
 
       # ------------------------------------------------------
-      # Tags
+      # NODE TAGS
       # ------------------------------------------------------
 
       tags = {
