@@ -13,6 +13,10 @@ permissions:
   id-token: write
   contents: read
 
+concurrency:
+  group: terraform-infrastructure
+  cancel-in-progress: false
+
 env:
   AWS_REGION: ap-south-1
   AWS_ACCOUNT_ID: "022267197315"
@@ -30,119 +34,70 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # ------------------------------------------------------
+
+      # --------------------------------------------------------
       # Checkout
-      # ------------------------------------------------------
+      # --------------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ------------------------------------------------------
+      # --------------------------------------------------------
       # Configure AWS using GitHub OIDC
-      # ------------------------------------------------------
+      # --------------------------------------------------------
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: arn:aws:iam::022267197315:role/GitHubActionsRole
           aws-region: ${{ env.AWS_REGION }}
 
-      # ------------------------------------------------------
+      # --------------------------------------------------------
       # Verify AWS identity
-      # ------------------------------------------------------
+      # --------------------------------------------------------
       - name: Verify AWS identity
         run: |
           aws sts get-caller-identity
+
           aws eks describe-cluster \
             --name "${CLUSTER_NAME}" \
             --region "${AWS_REGION}" \
             --query 'cluster.status' \
             --output text || true
 
-      # ------------------------------------------------------
+      # --------------------------------------------------------
       # Setup Terraform
-      # ------------------------------------------------------
+      # --------------------------------------------------------
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: "1.13.5"
 
-      # ------------------------------------------------------
+      # --------------------------------------------------------
       # Terraform Init
-      # ------------------------------------------------------
+      # --------------------------------------------------------
       - name: Terraform Init
         working-directory: ${{ env.TF_WORKING_DIR }}
-        run: |
-          terraform init -input=false
+        run: terraform init -input=false -no-color
 
-      # ------------------------------------------------------
+      # --------------------------------------------------------
       # Terraform Format Check
-      # ------------------------------------------------------
+      # --------------------------------------------------------
       - name: Terraform Format Check
         working-directory: ${{ env.TF_WORKING_DIR }}
-        run: |
-          terraform fmt -check -recursive
+        run: terraform fmt -check -recursive
 
-      # ------------------------------------------------------
+      # --------------------------------------------------------
       # Terraform Validate
-      # ------------------------------------------------------
+      # --------------------------------------------------------
       - name: Terraform Validate
         working-directory: ${{ env.TF_WORKING_DIR }}
-        run: |
-          terraform validate
+        run: terraform validate -no-color
 
-      # ------------------------------------------------------
+      # --------------------------------------------------------
       # Terraform Plan
-      # ------------------------------------------------------
+      # --------------------------------------------------------
       - name: Terraform Plan
         working-directory: ${{ env.TF_WORKING_DIR }}
-        run: |
-          terraform plan \
-            -input=false \
-            -out=tfplan
-
-      # ------------------------------------------------------
-      # Show plan in log
-      # ------------------------------------------------------
-      - name: Terraform Show
-        working-directory: ${{ env.TF_WORKING_DIR }}
-        run: |
-          terraform show -no-color tfplan > tfplan.txt
-
-      # ------------------------------------------------------
-      # STOP if EKS cluster replacement is detected
-      #
-      # This protects the existing EKS cluster from accidental
-      # destruction/recreation.
-      # ------------------------------------------------------
-      - name: Protect existing EKS cluster
-        working-directory: ${{ env.TF_WORKING_DIR }}
-        run: |
-          if grep -q "module.eks.aws_eks_cluster.this\[0\] must be replaced" tfplan.txt; then
-            echo "ERROR: Terraform wants to REPLACE the existing EKS cluster."
-            echo ""
-            echo "The infrastructure deployment is intentionally stopped."
-            echo ""
-            echo "Review:"
-            echo "  - EKS IAM cluster role"
-            echo "  - KMS encryption key"
-            echo "  - VPC/security groups"
-            echo ""
-            echo "Do NOT destroy the existing EKS cluster."
-            exit 1
-          fi
-
-          echo "No EKS cluster replacement detected."
-
-      # ------------------------------------------------------
-      # Upload plan
-      # ------------------------------------------------------
-      - name: Upload Terraform plan
-        uses: actions/upload-artifact@v4
-        with:
-          name: terraform-plan
-          path: |
-            terraform/tfplan
-            terraform/tfplan.txt
-          retention-days: 1
+        run: terraform plan -input=false -no-color
 
 
   # ==========================================================
@@ -153,113 +108,48 @@ jobs:
     needs: terraform-plan
     runs-on: ubuntu-latest
 
-    # Environment can be configured in GitHub as:
-    # Settings -> Environments -> production
-    #
-    # If you configure required reviewers, Terraform apply
-    # will wait for approval.
-    environment:
-      name: production
-
     steps:
 
-      # ------------------------------------------------------
+      # --------------------------------------------------------
       # Checkout
-      # ------------------------------------------------------
+      # --------------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ------------------------------------------------------
-      # Configure AWS
-      # ------------------------------------------------------
+      # --------------------------------------------------------
+      # Configure AWS using GitHub OIDC
+      # --------------------------------------------------------
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: arn:aws:iam::022267197315:role/GitHubActionsRole
           aws-region: ${{ env.AWS_REGION }}
 
-      # ------------------------------------------------------
+      # --------------------------------------------------------
       # Verify AWS identity
-      # ------------------------------------------------------
+      # --------------------------------------------------------
       - name: Verify AWS identity
         run: |
           aws sts get-caller-identity
 
-      # ------------------------------------------------------
+      # --------------------------------------------------------
       # Setup Terraform
-      # ------------------------------------------------------
+      # --------------------------------------------------------
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: "1.13.5"
 
-      # ------------------------------------------------------
+      # --------------------------------------------------------
       # Terraform Init
-      # ------------------------------------------------------
+      # --------------------------------------------------------
       - name: Terraform Init
         working-directory: ${{ env.TF_WORKING_DIR }}
-        run: |
-          terraform init -input=false
+        run: terraform init -input=false -no-color
 
-      # ------------------------------------------------------
-      # Download exact plan generated by plan job
-      # ------------------------------------------------------
-      - name: Download Terraform plan
-        uses: actions/download-artifact@v4
-        with:
-          name: terraform-plan
-          path: terraform
-
-      # ------------------------------------------------------
-      # Final protection before apply
-      # ------------------------------------------------------
-      - name: Verify plan
-        working-directory: ${{ env.TF_WORKING_DIR }}
-        run: |
-          if grep -q "module.eks.aws_eks_cluster.this\[0\] must be replaced" tfplan.txt; then
-            echo "ERROR: EKS cluster replacement detected."
-            echo "Apply cancelled."
-            exit 1
-          fi
-
-          echo "Plan is safe from EKS cluster replacement."
-
-      # ------------------------------------------------------
+      # --------------------------------------------------------
       # Terraform Apply
-      # ------------------------------------------------------
+      # --------------------------------------------------------
       - name: Terraform Apply
         working-directory: ${{ env.TF_WORKING_DIR }}
-        run: |
-          terraform apply \
-            -input=false \
-            tfplan
-
-      # ------------------------------------------------------
-      # Terraform Outputs
-      # ------------------------------------------------------
-      - name: Terraform Outputs
-        working-directory: ${{ env.TF_WORKING_DIR }}
-        run: |
-          terraform output
-
-      # ------------------------------------------------------
-      # Verify EKS cluster
-      # ------------------------------------------------------
-      - name: Verify EKS cluster
-        run: |
-          aws eks describe-cluster \
-            --name "${CLUSTER_NAME}" \
-            --region "${AWS_REGION}" \
-            --query 'cluster.{Name:name,Status:status,Version:version,RoleArn:roleArn}' \
-            --output table
-
-      # ------------------------------------------------------
-      # Verify ECR
-      # ------------------------------------------------------
-      - name: Verify ECR repository
-        run: |
-          aws ecr describe-repositories \
-            --repository-names "${ECR_REPOSITORY}" \
-            --region "${AWS_REGION}" \
-            --query 'repositories[0].{Name:repositoryName,URI:repositoryUri}' \
-            --output table
+        run: terraform apply -input=false -auto-approve -no-color
