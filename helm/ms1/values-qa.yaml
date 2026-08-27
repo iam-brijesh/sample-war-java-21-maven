@@ -1,0 +1,16 @@
+replicaCount: 2
+
+ingress:
+  enabled: true
+  className: alb
+  scheme: internal
+  targetType: ip
+  healthcheckPath: /hello-world/
+
+resources:
+  requests:
+    cpu: 150m
+    memory: 256Mi
+  limits:
+    cpu: 750m
+    memory: 768Mi
