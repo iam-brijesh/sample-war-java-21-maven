@@ -20,7 +20,7 @@ permissions:
 env:
   AWS_REGION: ap-south-1
   AWS_ROLE_ARN: arn:aws:iam::453168420398:role/GitHubActionsRole
-  ECR_REPOSITORY: sample-war
+  ECR_REPOSITORY: ms-1
   EKS_CLUSTER_NAME: hello-world-eks
   NAMESPACE: dev
   HELM_RELEASE: ms1
