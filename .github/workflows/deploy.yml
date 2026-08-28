@@ -22,21 +22,25 @@ env:
   AWS_ROLE_ARN: arn:aws:iam::453168420398:role/GitHubActionsRole
   ECR_REPOSITORY: ms-1
   EKS_CLUSTER_NAME: hello-world-eks
-  NAMESPACE: dev
   HELM_RELEASE: ms1
   HELM_CHART: ./helm/ms1
 
-jobs:
 
-  # ==========================================================
-  # JOB 1 - BUILD + TEST + DOCKER + ECR
-  # ==========================================================
+# ============================================================
+# JOB 1 - BUILD + TEST + DOCKER + ECR
+# ============================================================
+
+jobs:
 
   build-and-push:
 
-    name: Build WAR and Push Docker Image
+    name: Build MS1 and Push Image to ECR
 
     runs-on: ubuntu-latest
+
+    outputs:
+      image_tag: ${{ steps.image.outputs.tag }}
+      image_repository: ${{ steps.image.outputs.repository }}
 
     steps:
 
@@ -46,6 +50,7 @@ jobs:
 
       - name: Checkout source
         uses: actions/checkout@v4
+
 
       # --------------------------------------------------------
       # JAVA 21
@@ -58,6 +63,7 @@ jobs:
           java-version: "21"
           cache: maven
 
+
       # --------------------------------------------------------
       # MAVEN BUILD
       # --------------------------------------------------------
@@ -69,6 +75,7 @@ jobs:
           echo "======================================"
 
           mvn clean package -DskipTests
+
 
       # --------------------------------------------------------
       # VERIFY WAR
@@ -86,6 +93,7 @@ jobs:
 
           echo "WAR successfully created"
 
+
       # --------------------------------------------------------
       # AWS OIDC
       # --------------------------------------------------------
@@ -95,6 +103,7 @@ jobs:
         with:
           role-to-assume: ${{ env.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
+
 
       # --------------------------------------------------------
       # VERIFY AWS
@@ -108,16 +117,42 @@ jobs:
 
           aws sts get-caller-identity
 
+
       # --------------------------------------------------------
-      # LOGIN ECR
+      # LOGIN TO ECR
       # --------------------------------------------------------
 
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
+
       # --------------------------------------------------------
-      # BUILD DOCKER
+      # SET IMAGE VARIABLES
+      # --------------------------------------------------------
+
+      - name: Set image variables
+        id: image
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+
+        run: |
+          IMAGE_TAG="${GITHUB_SHA}"
+          IMAGE_REPOSITORY="${REGISTRY}/${ECR_REPOSITORY}"
+
+          echo "tag=${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
+          echo "repository=${IMAGE_REPOSITORY}" >> "$GITHUB_OUTPUT"
+
+          echo "======================================"
+          echo "IMAGE INFORMATION"
+          echo "======================================"
+
+          echo "Repository : ${IMAGE_REPOSITORY}"
+          echo "Tag        : ${IMAGE_TAG}"
+
+
+      # --------------------------------------------------------
+      # DOCKER BUILD
       # --------------------------------------------------------
 
       - name: Build Docker image
@@ -130,42 +165,31 @@ jobs:
           echo "DOCKER BUILD"
           echo "======================================"
 
-          echo "Registry : $REGISTRY"
-          echo "Repository : $ECR_REPOSITORY"
-          echo "Tag : $IMAGE_TAG"
-
           docker build \
             -t "$REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" \
-            -t "$REGISTRY/$ECR_REPOSITORY:latest" \
             .
 
+
       # --------------------------------------------------------
-      # PUSH SHA
+      # PUSH IMAGE TO ECR
       # --------------------------------------------------------
 
-      - name: Push SHA image
+      - name: Push Docker image
         env:
           REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
 
         run: |
+          echo "======================================"
+          echo "PUSHING IMAGE TO ECR"
+          echo "======================================"
+
           docker push \
             "$REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
 
-      # --------------------------------------------------------
-      # PUSH LATEST
-      # --------------------------------------------------------
-
-      - name: Push latest image
-        env:
-          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-
-        run: |
-          docker push \
-            "$REGISTRY/$ECR_REPOSITORY:latest"
 
       # --------------------------------------------------------
-      # VERIFY ECR
+      # VERIFY ECR IMAGE
       # --------------------------------------------------------
 
       - name: Verify ECR image
@@ -182,18 +206,24 @@ jobs:
             --image-ids imageTag="$IMAGE_TAG" \
             --region "$AWS_REGION"
 
-  # ==========================================================
-  # JOB 2 - DEPLOY MS1 TO EKS DEV
-  # ==========================================================
+          echo "ECR image verified successfully"
 
-  deploy:
 
-    name: Deploy MS1 to EKS DEV
+# ============================================================
+# JOB 2 - DEPLOY MS1 TO DEV
+# ============================================================
+
+  deploy-dev:
+
+    name: Deploy MS1 to DEV
 
     runs-on: ubuntu-latest
 
     needs:
       - build-and-push
+
+    environment:
+      name: dev
 
     steps:
 
@@ -203,6 +233,7 @@ jobs:
 
       - name: Checkout source
         uses: actions/checkout@v4
+
 
       # --------------------------------------------------------
       # AWS OIDC
@@ -214,17 +245,15 @@ jobs:
           role-to-assume: ${{ env.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
+
       # --------------------------------------------------------
-      # VERIFY AWS
+      # AWS IDENTITY
       # --------------------------------------------------------
 
       - name: Verify AWS identity
         run: |
-          echo "======================================"
-          echo "AWS IDENTITY"
-          echo "======================================"
-
           aws sts get-caller-identity
+
 
       # --------------------------------------------------------
       # VERIFY EKS
@@ -233,7 +262,7 @@ jobs:
       - name: Verify EKS cluster
         run: |
           echo "======================================"
-          echo "EKS CLUSTER"
+          echo "VERIFYING EKS CLUSTER"
           echo "======================================"
 
           aws eks describe-cluster \
@@ -241,6 +270,7 @@ jobs:
             --region "$AWS_REGION" \
             --query 'cluster.status' \
             --output text
+
 
       # --------------------------------------------------------
       # CONFIGURE KUBECONFIG
@@ -252,17 +282,15 @@ jobs:
             --region "$AWS_REGION" \
             --name "$EKS_CLUSTER_NAME"
 
+
       # --------------------------------------------------------
       # VERIFY NODES
       # --------------------------------------------------------
 
       - name: Verify EKS nodes
         run: |
-          echo "======================================"
-          echo "EKS NODES"
-          echo "======================================"
-
           kubectl get nodes -o wide
+
 
       # --------------------------------------------------------
       # SETUP HELM
@@ -273,6 +301,7 @@ jobs:
         with:
           version: latest
 
+
       # --------------------------------------------------------
       # HELM VERSION
       # --------------------------------------------------------
@@ -281,165 +310,476 @@ jobs:
         run: |
           helm version
 
+
       # --------------------------------------------------------
       # HELM LINT
       # --------------------------------------------------------
 
       - name: Helm lint
         run: |
-          echo "======================================"
-          echo "HELM LINT"
-          echo "======================================"
-
           helm lint "$HELM_CHART"
 
+
       # --------------------------------------------------------
-      # HELM TEMPLATE
+      # HELM TEMPLATE VALIDATION
       # --------------------------------------------------------
 
       - name: Helm template validation
         run: |
-          echo "======================================"
-          echo "HELM TEMPLATE VALIDATION"
-          echo "======================================"
-
           helm template "$HELM_RELEASE" \
             "$HELM_CHART" \
+            --namespace dev \
             -f "$HELM_CHART/values-dev.yaml" \
-            --set image.repository=test \
-            --set image.tag=test
+            --set image.repository="${{ needs.build-and-push.outputs.image_repository }}" \
+            --set image.tag="${{ needs.build-and-push.outputs.image_tag }}"
+
 
       # --------------------------------------------------------
-      # GET ECR REGISTRY
+      # DEPLOY DEV
       # --------------------------------------------------------
 
-      - name: Get ECR registry
-        id: ecr
-        run: |
-          ACCOUNT_ID=$(aws sts get-caller-identity \
-            --query Account \
-            --output text)
-
-          REGISTRY="$ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com"
-
-          echo "registry=$REGISTRY" >> "$GITHUB_OUTPUT"
-
-          echo "======================================"
-          echo "ECR REGISTRY"
-          echo "======================================"
-
-          echo "$REGISTRY"
-
-      # --------------------------------------------------------
-      # DEPLOY MS1
-      # --------------------------------------------------------
-
-      - name: Deploy MS1 with Helm
-        env:
-          REGISTRY: ${{ steps.ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
-
+      - name: Deploy MS1 to DEV
         run: |
           echo "======================================"
-          echo "DEPLOYING MS1"
+          echo "DEPLOYING MS1 TO DEV"
           echo "======================================"
 
-          echo "Namespace : $NAMESPACE"
-          echo "Release   : $HELM_RELEASE"
-          echo "Chart     : $HELM_CHART"
-          echo "Image     : $REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          echo "Image:"
+          echo "${{ needs.build-and-push.outputs.image_repository }}:${{ needs.build-and-push.outputs.image_tag }}"
 
           helm upgrade --install "$HELM_RELEASE" \
             "$HELM_CHART" \
-            --namespace "$NAMESPACE" \
+            --namespace dev \
             --create-namespace \
             -f "$HELM_CHART/values-dev.yaml" \
-            --set image.repository="$REGISTRY/$ECR_REPOSITORY" \
-            --set image.tag="$IMAGE_TAG" \
+            --set image.repository="${{ needs.build-and-push.outputs.image_repository }}" \
+            --set image.tag="${{ needs.build-and-push.outputs.image_tag }}" \
             --wait \
             --timeout 10m
+
 
       # --------------------------------------------------------
       # HELM STATUS
       # --------------------------------------------------------
 
-      - name: Helm status
+      - name: Helm status DEV
         run: |
           helm status "$HELM_RELEASE" \
-            --namespace "$NAMESPACE"
+            --namespace dev
+
 
       # --------------------------------------------------------
       # ROLLOUT
       # --------------------------------------------------------
 
-      - name: Check rollout
+      - name: Check DEV rollout
         run: |
           kubectl rollout status \
             deployment/ms1-ms1 \
-            -n "$NAMESPACE" \
+            -n dev \
             --timeout=5m
 
+
       # --------------------------------------------------------
-      # VERIFY PODS
+      # VERIFY DEV
       # --------------------------------------------------------
 
-      - name: Verify pods
+      - name: Verify DEV deployment
         run: |
           echo "======================================"
-          echo "PODS"
+          echo "DEV DEPLOYMENT STATUS"
           echo "======================================"
 
-          kubectl get pods \
-            -n "$NAMESPACE" \
-            -o wide
+          kubectl get deployment -n dev
+          kubectl get pods -n dev
+          kubectl get svc -n dev
+          kubectl get ingress -n dev
+
+          echo "DEV deployment successful"
+
+
+# ============================================================
+# JOB 3 - DEPLOY MS1 TO QA
+# ============================================================
+
+  deploy-qa:
+
+    name: Deploy MS1 to QA
+
+    runs-on: ubuntu-latest
+
+    needs:
+      - deploy-dev
+
+    environment:
+      name: qa
+
+    steps:
 
       # --------------------------------------------------------
-      # VERIFY SERVICE
+      # CHECKOUT
       # --------------------------------------------------------
 
-      - name: Verify service
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+
+      # --------------------------------------------------------
+      # AWS OIDC
+      # --------------------------------------------------------
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+
+      # --------------------------------------------------------
+      # AWS IDENTITY
+      # --------------------------------------------------------
+
+      - name: Verify AWS identity
+        run: |
+          aws sts get-caller-identity
+
+
+      # --------------------------------------------------------
+      # VERIFY EKS
+      # --------------------------------------------------------
+
+      - name: Verify EKS cluster
         run: |
           echo "======================================"
-          echo "SERVICE"
+          echo "VERIFYING EKS CLUSTER"
           echo "======================================"
 
-          kubectl get svc \
-            -n "$NAMESPACE"
+          aws eks describe-cluster \
+            --name "$EKS_CLUSTER_NAME" \
+            --region "$AWS_REGION" \
+            --query 'cluster.status' \
+            --output text
+
 
       # --------------------------------------------------------
-      # VERIFY INGRESS
+      # CONFIGURE KUBECONFIG
       # --------------------------------------------------------
 
-      - name: Verify ingress
+      - name: Configure kubeconfig
+        run: |
+          aws eks update-kubeconfig \
+            --region "$AWS_REGION" \
+            --name "$EKS_CLUSTER_NAME"
+
+
+      # --------------------------------------------------------
+      # VERIFY NODES
+      # --------------------------------------------------------
+
+      - name: Verify EKS nodes
+        run: |
+          kubectl get nodes -o wide
+
+
+      # --------------------------------------------------------
+      # SETUP HELM
+      # --------------------------------------------------------
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: latest
+
+
+      # --------------------------------------------------------
+      # HELM LINT
+      # --------------------------------------------------------
+
+      - name: Helm lint
+        run: |
+          helm lint "$HELM_CHART"
+
+
+      # --------------------------------------------------------
+      # HELM TEMPLATE VALIDATION
+      # --------------------------------------------------------
+
+      - name: Helm template validation
+        run: |
+          helm template "$HELM_RELEASE" \
+            "$HELM_CHART" \
+            --namespace qa \
+            -f "$HELM_CHART/values-qa.yaml" \
+            --set image.repository="${{ needs.build-and-push.outputs.image_repository }}" \
+            --set image.tag="${{ needs.build-and-push.outputs.image_tag }}"
+
+
+      # --------------------------------------------------------
+      # DEPLOY QA
+      # --------------------------------------------------------
+
+      - name: Deploy MS1 to QA
         run: |
           echo "======================================"
-          echo "INGRESS"
+          echo "DEPLOYING MS1 TO QA"
           echo "======================================"
 
-          kubectl get ingress \
-            -n "$NAMESPACE"
+          echo "Image:"
+          echo "${{ needs.build-and-push.outputs.image_repository }}:${{ needs.build-and-push.outputs.image_tag }}"
+
+          helm upgrade --install "$HELM_RELEASE" \
+            "$HELM_CHART" \
+            --namespace qa \
+            --create-namespace \
+            -f "$HELM_CHART/values-qa.yaml" \
+            --set image.repository="${{ needs.build-and-push.outputs.image_repository }}" \
+            --set image.tag="${{ needs.build-and-push.outputs.image_tag }}" \
+            --wait \
+            --timeout 10m
+
 
       # --------------------------------------------------------
-      # WAIT FOR ALB
+      # HELM STATUS
       # --------------------------------------------------------
 
-      - name: Wait for ALB
+      - name: Helm status QA
+        run: |
+          helm status "$HELM_RELEASE" \
+            --namespace qa
+
+
+      # --------------------------------------------------------
+      # ROLLOUT
+      # --------------------------------------------------------
+
+      - name: Check QA rollout
+        run: |
+          kubectl rollout status \
+            deployment/ms1-ms1 \
+            -n qa \
+            --timeout=5m
+
+
+      # --------------------------------------------------------
+      # VERIFY QA
+      # --------------------------------------------------------
+
+      - name: Verify QA deployment
         run: |
           echo "======================================"
-          echo "WAITING FOR AWS ALB"
+          echo "QA DEPLOYMENT STATUS"
+          echo "======================================"
+
+          kubectl get deployment -n qa
+          kubectl get pods -n qa
+          kubectl get svc -n qa
+          kubectl get ingress -n qa
+
+          echo "QA deployment successful"
+
+
+# ============================================================
+# JOB 4 - DEPLOY MS1 TO PROD
+# ============================================================
+
+  deploy-prod:
+
+    name: Deploy MS1 to PROD
+
+    runs-on: ubuntu-latest
+
+    needs:
+      - deploy-qa
+
+    environment:
+      name: prod
+
+    steps:
+
+      # --------------------------------------------------------
+      # CHECKOUT
+      # --------------------------------------------------------
+
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+
+      # --------------------------------------------------------
+      # AWS OIDC
+      # --------------------------------------------------------
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+
+      # --------------------------------------------------------
+      # AWS IDENTITY
+      # --------------------------------------------------------
+
+      - name: Verify AWS identity
+        run: |
+          aws sts get-caller-identity
+
+
+      # --------------------------------------------------------
+      # VERIFY EKS
+      # --------------------------------------------------------
+
+      - name: Verify EKS cluster
+        run: |
+          echo "======================================"
+          echo "VERIFYING EKS CLUSTER"
+          echo "======================================"
+
+          aws eks describe-cluster \
+            --name "$EKS_CLUSTER_NAME" \
+            --region "$AWS_REGION" \
+            --query 'cluster.status' \
+            --output text
+
+
+      # --------------------------------------------------------
+      # CONFIGURE KUBECONFIG
+      # --------------------------------------------------------
+
+      - name: Configure kubeconfig
+        run: |
+          aws eks update-kubeconfig \
+            --region "$AWS_REGION" \
+            --name "$EKS_CLUSTER_NAME"
+
+
+      # --------------------------------------------------------
+      # VERIFY NODES
+      # --------------------------------------------------------
+
+      - name: Verify EKS nodes
+        run: |
+          kubectl get nodes -o wide
+
+
+      # --------------------------------------------------------
+      # SETUP HELM
+      # --------------------------------------------------------
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: latest
+
+
+      # --------------------------------------------------------
+      # HELM LINT
+      # --------------------------------------------------------
+
+      - name: Helm lint
+        run: |
+          helm lint "$HELM_CHART"
+
+
+      # --------------------------------------------------------
+      # HELM TEMPLATE VALIDATION
+      # --------------------------------------------------------
+
+      - name: Helm template validation
+        run: |
+          helm template "$HELM_RELEASE" \
+            "$HELM_CHART" \
+            --namespace prod \
+            -f "$HELM_CHART/values-prod.yaml" \
+            --set image.repository="${{ needs.build-and-push.outputs.image_repository }}" \
+            --set image.tag="${{ needs.build-and-push.outputs.image_tag }}"
+
+
+      # --------------------------------------------------------
+      # DEPLOY PROD
+      # --------------------------------------------------------
+
+      - name: Deploy MS1 to PROD
+        run: |
+          echo "======================================"
+          echo "DEPLOYING MS1 TO PROD"
+          echo "======================================"
+
+          echo "Image:"
+          echo "${{ needs.build-and-push.outputs.image_repository }}:${{ needs.build-and-push.outputs.image_tag }}"
+
+          helm upgrade --install "$HELM_RELEASE" \
+            "$HELM_CHART" \
+            --namespace prod \
+            --create-namespace \
+            -f "$HELM_CHART/values-prod.yaml" \
+            --set image.repository="${{ needs.build-and-push.outputs.image_repository }}" \
+            --set image.tag="${{ needs.build-and-push.outputs.image_tag }}" \
+            --wait \
+            --timeout 10m
+
+
+      # --------------------------------------------------------
+      # HELM STATUS
+      # --------------------------------------------------------
+
+      - name: Helm status PROD
+        run: |
+          helm status "$HELM_RELEASE" \
+            --namespace prod
+
+
+      # --------------------------------------------------------
+      # ROLLOUT
+      # --------------------------------------------------------
+
+      - name: Check PROD rollout
+        run: |
+          kubectl rollout status \
+            deployment/ms1-ms1 \
+            -n prod \
+            --timeout=5m
+
+
+      # --------------------------------------------------------
+      # VERIFY PROD
+      # --------------------------------------------------------
+
+      - name: Verify PROD deployment
+        run: |
+          echo "======================================"
+          echo "PROD DEPLOYMENT STATUS"
+          echo "======================================"
+
+          kubectl get deployment -n prod
+          kubectl get pods -n prod
+          kubectl get svc -n prod
+          kubectl get ingress -n prod
+
+          echo "PROD deployment successful"
+
+
+      # --------------------------------------------------------
+      # WAIT FOR PROD ALB
+      # --------------------------------------------------------
+
+      - name: Wait for PROD ALB
+        run: |
+
+          echo "======================================"
+          echo "WAITING FOR PROD ALB"
           echo "======================================"
 
           for i in {1..30}; do
 
             ALB=$(kubectl get ingress ms1-ms1 \
-              -n "$NAMESPACE" \
+              -n prod \
               -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' \
               2>/dev/null || true)
 
             if [ -n "$ALB" ]; then
 
               echo "======================================"
-              echo "ALB CREATED"
+              echo "PROD ALB CREATED"
               echo "======================================"
 
               echo "ALB Hostname:"
@@ -448,8 +788,6 @@ jobs:
               echo ""
               echo "Application URL:"
               echo "http://$ALB/hello-world/"
-
-              echo "======================================"
 
               exit 0
             fi
@@ -462,46 +800,48 @@ jobs:
           done
 
           echo "======================================"
-          echo "ALB CREATION FAILED/TIMED OUT"
+          echo "PROD ALB CREATION FAILED/TIMED OUT"
           echo "======================================"
 
           kubectl describe ingress ms1-ms1 \
-            -n "$NAMESPACE"
+            -n prod
 
           exit 1
 
+
       # --------------------------------------------------------
-      # FINAL STATUS
+      # FINAL PROD STATUS
       # --------------------------------------------------------
 
-      - name: Final deployment status
+      - name: Final PROD status
         run: |
+
           echo ""
           echo "======================================"
-          echo "FINAL MS1 DEPLOYMENT STATUS"
+          echo "FINAL MS1 PROD STATUS"
           echo "======================================"
 
           echo ""
           echo "===== DEPLOYMENT ====="
-          kubectl get deployment -n "$NAMESPACE"
+          kubectl get deployment -n prod
 
           echo ""
           echo "===== PODS ====="
-          kubectl get pods -n "$NAMESPACE"
+          kubectl get pods -n prod
 
           echo ""
           echo "===== SERVICE ====="
-          kubectl get svc -n "$NAMESPACE"
+          kubectl get svc -n prod
 
           echo ""
           echo "===== INGRESS ====="
-          kubectl get ingress -n "$NAMESPACE"
+          kubectl get ingress -n prod
 
           echo ""
           echo "===== HELM ====="
-          helm list -n "$NAMESPACE"
+          helm list -n prod
 
           echo ""
           echo "======================================"
-          echo "MS1 DEPLOYMENT COMPLETED"
+          echo "MS1 PROD DEPLOYMENT COMPLETED"
           echo "======================================"
