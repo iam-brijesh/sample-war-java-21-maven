@@ -476,7 +476,6 @@ jobs:
           echo "======================================"
           echo "DEPLOYING MS1 TO QA"
           echo "======================================"
-[O
           echo "Namespace : qa"
           echo "Release   : $HELM_RELEASE"
           echo "Image     : $ECR_REGISTRY/$ECR_REPOSITORY:$GITHUB_SHA"
